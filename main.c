@@ -43,7 +43,8 @@ int main(int argc, char **argv)
   //const int ntrips = argc >= 3 ? atoi(argv[2]) : DEFAULT_NTRIPS;
   //const cl_long n = argc >= 2 ? atol(argv[1]) : DEFAULT_N;
 
-	u32 salt_u32[4], result[6];
+	u32 salt_u32[4], result[6], salt_tmp[4];
+	u32 resultest[6];
 
 	cl_mem bufferA = NULL;
     cl_mem bufferB = NULL;
@@ -52,6 +53,7 @@ int main(int argc, char **argv)
 
 	char temp[BCRYPT_HASHSIZE];
 	char tempsalt[BCRYPT_HASHSIZE];	
+	char encodesalt[BCRYPT_HASHSIZE];
 	char hash[BCRYPT_HASHSIZE];
 	char pwd[MEM_SIZE] = "jianwei";	
 	char salt[MEM_SIZE] = "$2a$10$0000000000000000000000";
@@ -62,7 +64,7 @@ int main(int argc, char **argv)
 	u32 workFactor = 10; //default
 	u32 paramround = 1024;
 
-	if (argc != 1 && argc != 4 && argc != 5)
+	if (argc != 4 && argc != 5)
 	{
 		printf("invalid argument\n");
 		printf("ex1. clBcrypt password salt round(2^n, 1024,2048)\n");
@@ -80,7 +82,7 @@ int main(int argc, char **argv)
 	}
 	workFactor = j - 1;
 
-	if (workFactor < 4 || workFactor > 50)
+	if (workFactor < 1 || workFactor > 50)
 	{
 		printf("invalid argument\n");
 		return  0;
@@ -91,6 +93,8 @@ int main(int argc, char **argv)
 	
 	u32 loop_cnt = 1 << workFactor, *loop_cnt_ptr = &loop_cnt;
     pw_t pw, *pws = &pw;
+
+	//pw_t salt, *psalt = &salt;
     
     
     //bcrypt_gensalt(workFactor, salt);
@@ -156,17 +160,43 @@ int main(int argc, char **argv)
 
 			while (fscanf(pinFile, "%s %s", pwd, temp) == 2)
 			{
-				strcpy(salt, tempsalt);
-				int nlen = min(strlen(temp), 22);
-				for (i = 0; i < nlen; i++)
-				{
-					salt[7 + i] = temp[i];
+
+				strcpy(encodesalt, temp);
+				int nlen = min(strlen(encodesalt), 16);
+
+				u32 encsalt[4];
+
+				char *pstr = encodesalt;
+				for (int i = 0; i < 4; i++) {
+					u32 tmp = 0;
+					for (int j = 0; j < 4; j++) {
+						tmp <<= 8;
+						tmp |= (unsigned char)*pstr;
+						if (!*pstr) {
+							tmp <<= 8 * (3 - j);
+							break;
+						}
+						else pstr++;
+					}
+
+					encsalt[i] = tmp;
+					BF_swap(&encsalt[i], 1);
 				}
 
-				printf("pass: %s salt: %s \n", pwd, salt);
+				BF_encode(encodesalt, encsalt, 16);
+
+				for (i = 0; i < 22; i++)
+				{
+					salt[7 + i] = encodesalt[i];
+				}
+
+				printf("pass: %s salt: %s \n", argv[1], salt);
+
 
 				BF_decode(salt_u32, &salt[7], 16);
 				BF_swap(salt_u32, 4);
+
+
 				char *ptr = pwd;
 				for (int i = 0; i < 18; i++) {
 					u32 tmp = 0;
@@ -231,12 +261,12 @@ int main(int argc, char **argv)
 
 				CALL_CL_GUARDED(clEnqueueReadBuffer, (
 					queue, bufferD, /*blocking*/ CL_TRUE, /*offset*/ 0,
-					6 * sizeof(u32), result,
+					6 * sizeof(u32), resultest,
 					0, NULL, NULL));
 
 				memcpy(hash, salt, 7 + 22);
-				BF_swap(result, 6);
-				BF_encode(&hash[7 + 22], result, 23);
+				BF_swap(resultest, 6);
+				BF_encode(&hash[7 + 22], resultest, 23);
 				hash[7 + 22 + 31] = '\0';
 
 				fprintf(poutFile, "%s\n", hash);
@@ -255,11 +285,34 @@ int main(int argc, char **argv)
 				strcpy(pwd, argv[1]);
 				strcpy(salt, tempsalt);
 
-				int nlen = min(strlen(argv[2]), 22);
-				for (i = 0; i < nlen; i++)
-				{
-					salt[7 + i] = argv[2][i];
+				strcpy(encodesalt, argv[2]);
+				int nlen = min(strlen(encodesalt), 16);
+				
+				u32 encsalt[4];
+
+				char *ptr = encodesalt;
+				for (int i = 0; i < 4; i++) {
+					u32 tmp = 0;
+					for (int j = 0; j < 4; j++) {
+						tmp <<= 8;
+						tmp |= (unsigned char)*ptr;
+						if (!*ptr) {
+							tmp <<= 8 * (3 - j);
+							break;
+						}
+						else ptr++;
+					}
+
+					encsalt[i] = tmp;
+					BF_swap(&encsalt[i], 1);
 				}
+				
+				BF_encode(encodesalt, encsalt, 16);
+
+				for (i = 0; i < 22; i++)
+				{
+					salt[7 + i] = encodesalt[i];
+				}				
 
 				printf("pass: %s salt: %s \n", argv[1], salt);
 			}
